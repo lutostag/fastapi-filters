@@ -5,16 +5,15 @@ from uuid import UUID, uuid4
 from faker import Faker
 from fastapi import FastAPI, Depends
 from pydantic import BaseModel
-from sqlalchemy import text, select, func, Integer
-from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, MappedAsDataclass
 
-from fastapi_filters import SortingValues, FilterSet, FilterField, create_filters_from_set, create_sorting
+from fastapi_filters import SortingValues, FilterSet, FilterField, create_filters_from_set, create_sorting, FilterOperator
 from fastapi_filters.ext.sqlalchemy import apply_filters_and_sorting
 
 faker = Faker()
-engine = create_async_engine("postgresql+asyncpg://postgres:postgres@localhost:5432/postgres")
+engine = create_async_engine("sqlite+aiosqlite://")
 
 
 class Base(MappedAsDataclass, DeclarativeBase):
@@ -30,7 +29,6 @@ class User(Base):
     last_name: Mapped[str] = mapped_column()
     email: Mapped[str] = mapped_column()
     age: Mapped[int] = mapped_column()
-    marks: Mapped[List[int]] = mapped_column(ARRAY(Integer))
     is_active: Mapped[bool] = mapped_column()
     created_at: Mapped[datetime] = mapped_column()
 
@@ -41,7 +39,6 @@ class UserOut(BaseModel):
     last_name: str
     email: str
     age: int
-    marks: List[int]
     is_active: bool
     created_at: datetime
 
@@ -56,9 +53,6 @@ app = FastAPI()
 @app.on_event("startup")
 async def on_startup() -> None:
     async with engine.begin() as conn:
-        await conn.execute(text("drop schema public cascade"))
-        await conn.execute(text("create schema public"))
-
         await conn.run_sync(Base.metadata.create_all)
 
     async with AsyncSession(engine) as session:
@@ -70,9 +64,6 @@ async def on_startup() -> None:
                         first_name=faker.first_name(),
                         last_name=faker.last_name(),
                         email=faker.email(),
-                        marks=[
-                            faker.pyint(min_value=1, max_value=5) for _ in range(faker.pyint(min_value=1, max_value=10))
-                        ],
                         age=faker.pyint(min_value=1, max_value=100),
                         is_active=faker.pybool(),
                         created_at=faker.date_time_this_year(),
@@ -83,11 +74,10 @@ async def on_startup() -> None:
 
 
 class UserFiltersSet(FilterSet):
-    first_name: FilterField[str]
+    first_name: FilterField[str] = FilterField(str, default_op=FilterOperator.eq, operators=[])
     last_name: FilterField[str]
     email: FilterField[str]
     age: FilterField[int]
-    marks: FilterField[List[int]]
     is_active: FilterField[bool]
     created_at: FilterField[datetime]
 
@@ -99,16 +89,7 @@ async def get_users(
 ) -> Any:
     stmt = select(User)
 
-    stmt = apply_filters_and_sorting(
-        stmt,
-        filters,
-        sorting,
-        additional={
-            "first_name": func.lower(User.first_name),
-            "last_name": func.lower(User.last_name),
-        },
-    )
-
+    stmt = apply_filters_and_sorting(stmt, filters, sorting)
     async with AsyncSession(engine) as session:
         return await session.scalars(stmt)
 
