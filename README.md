@@ -28,7 +28,7 @@ pip install fastapi-filters
 
 ```bash
 # checkout the repo and enter top level directory
-poetry install --all
+poetry install --all-extras
 poetry run uvicorn examples.app:app --reload
 # navigate to http://127.0.0.1:8000/docs
 ```
